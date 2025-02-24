@@ -1,4 +1,3 @@
-
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
@@ -50,6 +49,14 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_
 model = RandomForestClassifier(n_estimators=100, random_state=42)
 model.fit(X_train, y_train)
 
+# Fixed population density and sanitation per location
+location_data = {
+    "Kanyama": {"density": 6500, "sanitation": 0.5},
+    "Matero": {"density": 6200, "sanitation": 0.45},
+    "Lusaka_District": {"density": 5800, "sanitation": 0.55},
+    "Chawama": {"density": 6700, "sanitation": 0.4}
+}
+
 # Fetch NASA POWER weather data
 def get_nasa_weather():
     url = "https://power.larc.nasa.gov/api/temporal/monthly/point"
@@ -63,27 +70,26 @@ def get_nasa_weather():
         "format": "JSON"
     }
     try:
-        response = requests.get(url, params=params, timeout=10)
+        response = requests.get(url, params=params, timeout=5)
         weather = response.json()["properties"]["parameter"]
         latest_rain = weather["PRECTOTCORR"]["202402"] * 30
         latest_temp = weather["T2M"]["202402"]
         return latest_rain, latest_temp
     except Exception as e:
-        st.write(f"NASA API failed: {e}. Using defaults.")
+        st.write(f"NASA API failed: {e}. Using defaults (fix pending).")
         return 200, 30
 
 # Streamlit app
 st.title("Lusaka Cholera Prediction System")
-st.write("Enter population density and sanitation once; weather is fetched automatically.")
+st.write("Population density and sanitation are fixed per location; weather updates automatically.")
 
-# One-time inputs
-if "density" not in st.session_state:
-    st.session_state.density = st.slider("Population Density (per sq km)", 5000.0, 7000.0, 6500.0)
-    st.session_state.sanitation = st.slider("Sanitation Level (0-1)", 0.0, 1.0, 0.5)
-density_input = st.session_state.density
-sanitation_input = st.session_state.sanitation
+# Location selection
+location_input = st.selectbox("Select Location", locations)
+density_input = location_data[location_input]["density"]
+sanitation_input = location_data[location_input]["sanitation"]
+st.write(f"Fixed Values - Density: {density_input}, Sanitation: {sanitation_input}")
 
-location_input = st.selectbox("Location", locations)
+# Fetch weather
 rainfall_auto, temp_auto = get_nasa_weather()
 st.write(f"Latest Weather (NASA, Feb 2024): Rainfall={rainfall_auto:.2f}mm, Temp={temp_auto:.2f}°C")
 
@@ -109,7 +115,9 @@ loc_coords = {
     "Chawama": [-15.43, 28.27]
 }
 for loc, coords in loc_coords.items():
-    loc_sample = pd.DataFrame([[rainfall_auto, temp_auto, density_input, sanitation_input]], 
+    loc_density = location_data[loc]["density"]
+    loc_sanitation = location_data[loc]["sanitation"]
+    loc_sample = pd.DataFrame([[rainfall_auto, temp_auto, loc_density, loc_sanitation]], 
                               columns=["Rainfall_mm", "Temperature_C", "Population_Density", "Sanitation_Level"])
     loc_risk = model.predict_proba(loc_sample)[0][1] * 100
     folium.Marker(coords, popup=f"{loc}: {loc_risk:.2f}%").add_to(m)
