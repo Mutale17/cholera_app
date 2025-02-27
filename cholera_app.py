@@ -57,31 +57,25 @@ location_data = {
     "Chawama": {"density": 6700, "sanitation": 0.4}
 }
 
-# Fetch NASA POWER weather data
-def get_nasa_weather():
-    url = "https://power.larc.nasa.gov/api/temporal/monthly/point"
-    params = {
-        "parameters": "PRECTOTCORR,T2M",
-        "community": "AG",
-        "longitude": 28.2833,
-        "latitude": -15.4167,
-        "start": "202401",
-        "end": "202402",
-        "format": "JSON"
-    }
+# Fetch OpenWeatherMap forecast (tomorrow’s weather)
+def get_weather_forecast():
+    api_key = "60ca0403f7e3b2161c5b6ea63b642bee"  # Your working key
+    url = f"http://api.openweathermap.org/data/2.5/forecast?lat=-15.4167&lon=28.2833&appid={api_key}&units=metric"
     try:
-        response = requests.get(url, params=params, timeout=5)
-        weather = response.json()["properties"]["parameter"]
-        latest_rain = weather["PRECTOTCORR"]["202402"] * 30
-        latest_temp = weather["T2M"]["202402"]
-        return latest_rain, latest_temp
+        response = requests.get(url, timeout=5)
+        response.raise_for_status()
+        data = response.json()
+        tomorrow = data["list"][8]  # Approx 24h ahead (3-hour steps, 8th entry)
+        rain = tomorrow["rain"].get("3h", 0) * 10 if "rain" in tomorrow else 0  # Convert 3h rain to mm
+        temp = tomorrow["main"]["temp"]  # °C
+        return rain, temp
     except Exception as e:
-        st.write(f"NASA API failed: {e}. Using defaults (fix pending).")
+        st.write(f"Weather API failed: {e}. Using defaults.")
         return 200, 30
 
 # Streamlit app
 st.title("Lusaka Cholera Prediction System")
-st.write("Population density and sanitation are fixed per location; weather updates automatically.")
+st.write("Population density and sanitation are fixed per location; weather updates automatically from OpenWeatherMap.")
 
 # Location selection
 location_input = st.selectbox("Select Location", locations)
@@ -90,21 +84,34 @@ sanitation_input = location_data[location_input]["sanitation"]
 st.write(f"Fixed Values - Density: {density_input}, Sanitation: {sanitation_input}")
 
 # Fetch weather
-rainfall_auto, temp_auto = get_nasa_weather()
-st.write(f"Latest Weather (NASA, Feb 2024): Rainfall={rainfall_auto:.2f}mm, Temp={temp_auto:.2f}°C")
+rainfall_auto, temp_auto = get_weather_forecast()
+st.write(f"Tomorrow’s Weather (OpenWeatherMap): Rainfall={rainfall_auto:.2f}mm, Temp={temp_auto:.2f}°C")
 
 # Predict
 sample = pd.DataFrame([[rainfall_auto, temp_auto, density_input, sanitation_input]], 
                       columns=["Rainfall_mm", "Temperature_C", "Population_Density", "Sanitation_Level"])
 risk = model.predict_proba(sample)[0][1] * 100
-st.write(f"Predicted Outbreak Risk: {risk:.2f}%")
+st.write(f"Predicted Outbreak Risk (Tomorrow): {risk:.2f}%")
 
 # SMS alert simulation
 if risk > 50:
-    alert_msg = f"ALERT: High cholera risk in {location_input} - {risk:.2f}%"
+    alert_msg = f"ALERT: High cholera risk in {location_input} tomorrow - {risk:.2f}%"
     st.write(alert_msg)
 else:
-    st.write(f"Low risk: {risk:.2f}%")
+    st.write(f"Low risk tomorrow: {risk:.2f}%")
+
+# AI Analysis (Grok 3 simulation)
+st.subheader("AI Analysis (Powered by Grok 3 Simulation)")
+historical_risk = data.groupby("Location").apply(
+    lambda x: (x["Cholera_Cases"] > 200).mean() * 100 if (x["Rainfall_mm"] > 150).any() else 0
+).to_dict()
+st.write("Historical Risk Trends (Synthetic Data):")
+for loc, risk in historical_risk.items():
+    st.write(f"{loc}: {risk:.2f}% risk when rainfall > 150mm")
+if rainfall_auto > 150:
+    st.write(f"Current Forecast: Rainfall={rainfall_auto:.2f}mm exceeds 150mm threshold - High risk likely.")
+else:
+    st.write(f"Current Forecast: Rainfall={rainfall_auto:.2f}mm below 150mm - Lower risk expected.")
 
 # Risk map
 m = folium.Map(location=[-15.4167, 28.2833], zoom_start=12)
