@@ -13,9 +13,9 @@ np.random.seed(42)
 # Generate synthetic data
 dates = pd.date_range(start="2017-01-01", end="2024-12-01", freq="ME")
 locations = ["Kanyama", "Matero", "Lusaka_District", "Chawama"]
-rainfall = [np.random.uniform(0, 50) if month in [5, 6, 7, 8, 9] else np.random.uniform(150, 300) for month in dates.month]
-temp = [np.random.uniform(15, 25) if month in [5, 6, 7, 8, 9] else np.random.uniform(25, 35) for month in dates.month]
-cases = [np.random.randint(0, 100) if r < 100 and t < 20 else np.random.randint(200, 2000) for r, t in zip(rainfall, temp)]
+rainfall = [np.random.uniform(0, 50) if month in [5, 6, 7, 8, 9] else np.random.uniform(0, 300) for month in dates.month]
+temp = [np.random.uniform(15, 25) if month in [5, 6, 7, 8, 9] else np.random.uniform(18, 35) for month in dates.month]
+cases = [np.random.randint(0, 50) if r < 50 else np.random.randint(50, 2000) for r, t in zip(rainfall, temp)]
 deaths = [int(c * np.random.uniform(0.02, 0.05)) for c in cases]
 pop_density = np.random.uniform(5000, 7000, len(dates))
 sanitation = np.random.uniform(0.4, 0.6, len(dates))
@@ -65,8 +65,8 @@ def get_current_weather():
         response = requests.get(url, timeout=5)
         response.raise_for_status()
         data = response.json()
-        rain = data.get("rain", {}).get("1h", 0) * 10  # Convert 1h rain to mm, default 0 if no rain
-        temp = data["main"]["temp"]  # °C
+        rain = data.get("rain", {}).get("1h", 0) * 10
+        temp = data["main"]["temp"]
         return rain, temp
     except Exception as e:
         st.write(f"Current Weather API failed: {e}. Using defaults.")
@@ -80,9 +80,9 @@ def get_weather_forecast():
         response = requests.get(url, timeout=5)
         response.raise_for_status()
         data = response.json()
-        tomorrow = data["list"][8]  # Approx 24h ahead (3-hour steps, 8th entry)
-        rain = tomorrow["rain"].get("3h", 0) * 10 if "rain" in tomorrow else 0  # Convert 3h rain to mm
-        temp = tomorrow["main"]["temp"]  # °C
+        tomorrow = data["list"][8]
+        rain = tomorrow["rain"].get("3h", 0) * 10 if "rain" in tomorrow else 0
+        temp = tomorrow["main"]["temp"]
         return rain, temp
     except Exception as e:
         st.write(f"Weather API failed: {e}. Using defaults.")
@@ -105,7 +105,7 @@ st.write(f"Today’s Weather (OpenWeatherMap): Rainfall={current_rain:.2f}mm, Te
 current_sample = pd.DataFrame([[current_rain, current_temp, density_input, sanitation_input]], 
                               columns=["Rainfall_mm", "Temperature_C", "Population_Density", "Sanitation_Level"])
 current_raw_risk = model.predict_proba(current_sample)[0][1] * 100
-current_risk = min(current_raw_risk, 50) if current_rain <= 150 else current_raw_risk
+current_risk = min(current_raw_risk, 20) if current_rain <= 50 else current_raw_risk
 st.write(f"Current Outbreak Risk (Today): {current_risk:.2f}%")
 if current_risk > 30:
     st.write(f"ALERT: High cholera risk in {location_input} today - {current_risk:.2f}%")
@@ -119,7 +119,7 @@ st.write(f"Tomorrow’s Weather (OpenWeatherMap): Rainfall={rainfall_auto:.2f}mm
 sample = pd.DataFrame([[rainfall_auto, temp_auto, density_input, sanitation_input]], 
                       columns=["Rainfall_mm", "Temperature_C", "Population_Density", "Sanitation_Level"])
 raw_risk = model.predict_proba(sample)[0][1] * 100
-risk = min(raw_risk, 50) if rainfall_auto <= 150 else raw_risk
+risk = min(raw_risk, 20) if rainfall_auto <= 50 else raw_risk
 st.write(f"Predicted Outbreak Risk (Tomorrow): {risk:.2f}%")
 if risk > 30:
     alert_msg = f"ALERT: High cholera risk in {location_input} tomorrow - {risk:.2f}%"
@@ -136,15 +136,15 @@ st.write("Historical Risk Trends (Synthetic Data):")
 for loc, risk in historical_risk.items():
     st.write(f"{loc}: {risk:.2f}% risk when rainfall > 150mm")
 st.write("Current Situation:")
-if current_rain > 150:
-    st.write(f"Today’s Rainfall={current_rain:.2f}mm exceeds 150mm threshold - High risk likely.")
+if current_rain > 50:
+    st.write(f"Today’s Rainfall={current_rain:.2f}mm exceeds 50mm threshold - Elevated risk possible.")
 else:
-    st.write(f"Today’s Rainfall={current_rain:.2f}mm below 150mm - Lower risk expected.")
+    st.write(f"Today’s Rainfall={current_rain:.2f}mm below 50mm - Lower risk expected.")
 st.write("Tomorrow’s Forecast:")
-if rainfall_auto > 150:
-    st.write(f"Rainfall={rainfall_auto:.2f}mm exceeds 150mm threshold - High risk likely.")
+if rainfall_auto > 50:
+    st.write(f"Rainfall={rainfall_auto:.2f}mm exceeds 50mm threshold - Elevated risk possible.")
 else:
-    st.write(f"Rainfall={rainfall_auto:.2f}mm below 150mm - Lower risk expected.")
+    st.write(f"Rainfall={rainfall_auto:.2f}mm below 50mm - Lower risk expected.")
 
 # Risk map
 st.subheader("Risk Map")
@@ -161,6 +161,6 @@ for loc, coords in loc_coords.items():
     loc_sample = pd.DataFrame([[rainfall_auto, temp_auto, loc_density, loc_sanitation]], 
                               columns=["Rainfall_mm", "Temperature_C", "Population_Density", "Sanitation_Level"])
     loc_risk = model.predict_proba(loc_sample)[0][1] * 100
-    loc_risk = min(loc_risk, 50) if rainfall_auto <= 150 else loc_risk
+    loc_risk = min(loc_risk, 20) if rainfall_auto <= 50 else loc_risk
     folium.Marker(coords, popup=f"{loc}: {loc_risk:.2f}%").add_to(m)
 folium_static(m)
