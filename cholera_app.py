@@ -57,9 +57,24 @@ location_data = {
     "Chawama": {"density": 6700, "sanitation": 0.4}
 }
 
+# Fetch OpenWeatherMap current weather (today)
+def get_current_weather():
+    api_key = "60ca0403f7e3b2161c5b6ea63b642bee"
+    url = f"http://api.openweathermap.org/data/2.5/weather?lat=-15.4167&lon=28.2833&appid={api_key}&units=metric"
+    try:
+        response = requests.get(url, timeout=5)
+        response.raise_for_status()
+        data = response.json()
+        rain = data.get("rain", {}).get("1h", 0) * 10  # Convert 1h rain to mm, default 0 if no rain
+        temp = data["main"]["temp"]  # °C
+        return rain, temp
+    except Exception as e:
+        st.write(f"Current Weather API failed: {e}. Using defaults.")
+        return 0, 25
+
 # Fetch OpenWeatherMap forecast (tomorrow’s weather)
 def get_weather_forecast():
-    api_key = "60ca0403f7e3b2161c5b6ea63b642bee"  # Your working key
+    api_key = "60ca0403f7e3b2161c5b6ea63b642bee"
     url = f"http://api.openweathermap.org/data/2.5/forecast?lat=-15.4167&lon=28.2833&appid={api_key}&units=metric"
     try:
         response = requests.get(url, timeout=5)
@@ -83,18 +98,30 @@ density_input = location_data[location_input]["density"]
 sanitation_input = location_data[location_input]["sanitation"]
 st.write(f"Fixed Values - Density: {density_input}, Sanitation: {sanitation_input}")
 
-# Fetch weather
+# Current conditions
+st.subheader("Current Conditions (Today)")
+current_rain, current_temp = get_current_weather()
+st.write(f"Today’s Weather (OpenWeatherMap): Rainfall={current_rain:.2f}mm, Temp={current_temp:.2f}°C")
+current_sample = pd.DataFrame([[current_rain, current_temp, density_input, sanitation_input]], 
+                              columns=["Rainfall_mm", "Temperature_C", "Population_Density", "Sanitation_Level"])
+current_raw_risk = model.predict_proba(current_sample)[0][1] * 100
+current_risk = min(current_raw_risk, 50) if current_rain <= 150 else current_raw_risk
+st.write(f"Current Outbreak Risk (Today): {current_risk:.2f}%")
+if current_risk > 30:
+    st.write(f"ALERT: High cholera risk in {location_input} today - {current_risk:.2f}%")
+else:
+    st.write(f"Low risk today: {current_risk:.2f}%")
+
+# Tomorrow’s forecast
+st.subheader("Forecast (Tomorrow)")
 rainfall_auto, temp_auto = get_weather_forecast()
 st.write(f"Tomorrow’s Weather (OpenWeatherMap): Rainfall={rainfall_auto:.2f}mm, Temp={temp_auto:.2f}°C")
-
-# Predict
 sample = pd.DataFrame([[rainfall_auto, temp_auto, density_input, sanitation_input]], 
                       columns=["Rainfall_mm", "Temperature_C", "Population_Density", "Sanitation_Level"])
-risk = model.predict_proba(sample)[0][1] * 100
+raw_risk = model.predict_proba(sample)[0][1] * 100
+risk = min(raw_risk, 50) if rainfall_auto <= 150 else raw_risk
 st.write(f"Predicted Outbreak Risk (Tomorrow): {risk:.2f}%")
-
-# SMS alert simulation
-if risk > 50:
+if risk > 30:
     alert_msg = f"ALERT: High cholera risk in {location_input} tomorrow - {risk:.2f}%"
     st.write(alert_msg)
 else:
@@ -108,12 +135,19 @@ historical_risk = data.groupby("Location").apply(
 st.write("Historical Risk Trends (Synthetic Data):")
 for loc, risk in historical_risk.items():
     st.write(f"{loc}: {risk:.2f}% risk when rainfall > 150mm")
-if rainfall_auto > 150:
-    st.write(f"Current Forecast: Rainfall={rainfall_auto:.2f}mm exceeds 150mm threshold - High risk likely.")
+st.write("Current Situation:")
+if current_rain > 150:
+    st.write(f"Today’s Rainfall={current_rain:.2f}mm exceeds 150mm threshold - High risk likely.")
 else:
-    st.write(f"Current Forecast: Rainfall={rainfall_auto:.2f}mm below 150mm - Lower risk expected.")
+    st.write(f"Today’s Rainfall={current_rain:.2f}mm below 150mm - Lower risk expected.")
+st.write("Tomorrow’s Forecast:")
+if rainfall_auto > 150:
+    st.write(f"Rainfall={rainfall_auto:.2f}mm exceeds 150mm threshold - High risk likely.")
+else:
+    st.write(f"Rainfall={rainfall_auto:.2f}mm below 150mm - Lower risk expected.")
 
 # Risk map
+st.subheader("Risk Map")
 m = folium.Map(location=[-15.4167, 28.2833], zoom_start=12)
 loc_coords = {
     "Kanyama": [-15.45, 28.25],
@@ -127,5 +161,6 @@ for loc, coords in loc_coords.items():
     loc_sample = pd.DataFrame([[rainfall_auto, temp_auto, loc_density, loc_sanitation]], 
                               columns=["Rainfall_mm", "Temperature_C", "Population_Density", "Sanitation_Level"])
     loc_risk = model.predict_proba(loc_sample)[0][1] * 100
+    loc_risk = min(loc_risk, 50) if rainfall_auto <= 150 else loc_risk
     folium.Marker(coords, popup=f"{loc}: {loc_risk:.2f}%").add_to(m)
 folium_static(m)
